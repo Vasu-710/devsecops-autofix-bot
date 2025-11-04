@@ -4,14 +4,12 @@ import json
 from datetime import datetime
 
 # Load parsed Trivy JSON
-parsed_file = os.path.join(os.path.dirname(__file__), "../trivy-parsed.json")
+parsed_file = os.path.join(os.path.dirname(__file__), "trivy-parsed.json")
 with open(parsed_file) as f:
     data = json.load(f)
 
-# Combine HIGH + CRITICAL
 vulns = data["HIGH"] + data["CRITICAL"]
 
-# Exit if no HIGH/CRITICAL vulnerabilities
 if not vulns:
     print("No HIGH or CRITICAL vulnerabilities, skipping PR.")
     exit(0)
@@ -30,7 +28,7 @@ try:
 except:
     print(f"Branch {branch_name} already exists, continuing...")
 
-# Real fix logic example: update requirements.txt if fixed version exists
+# Real fix logic example
 requirements_file = "requirements.txt"
 if os.path.exists(requirements_file):
     with open(requirements_file, "r") as f:
@@ -46,14 +44,13 @@ if os.path.exists(requirements_file):
                         line = f"{pkg_name}=={fixed_version}\n"
             f.write(line)
 
-# Fallback dummy fix if no real fix applied
+# Fallback dummy fix
 dummy_file_path = "fix_dummy.txt"
 with open(dummy_file_path, "w") as f:
     f.write("Placeholder fix for HIGH/CRITICAL vulnerabilities.\n")
 
-# Build dynamic PR description
+# Dynamic PR description
 pr_body = "This PR is created by DevSecOps Bot.\n\n"
-
 if data["HIGH"]:
     pr_body += f"**HIGH vulnerabilities ({len(data['HIGH'])}):**\n"
     for v in data["HIGH"]:
@@ -64,7 +61,6 @@ if data["CRITICAL"]:
     for v in data["CRITICAL"]:
         pr_body += f"- {v.get('PkgName')} ({v.get('VulnerabilityID')})\n"
 
-# Create pull request
 pr_title = f"Auto-Fix: {len(data['HIGH'])} HIGH / {len(data['CRITICAL'])} CRITICAL vulnerabilities"
 try:
     repo.create_pull(title=pr_title, body=pr_body, head=branch_name, base="main")

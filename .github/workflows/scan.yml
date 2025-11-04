@@ -28,7 +28,12 @@ jobs:
           exit-code: 0
 
       - name: Parse Trivy JSON
-        run: python scripts/parse_trivy.py
+        run: python parse_trivy.py
+
+      - name: Run Auto-Fix Bot
+        run: python auto_fix.py
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
       - name: Upload parsed Trivy JSON
         uses: actions/upload-artifact@v4
