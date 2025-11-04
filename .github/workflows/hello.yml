@@ -12,14 +12,9 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - name: Run Trivy Scan
+        uses: aquasecurity/trivy-action@v2
         with:
-          python-version: 3.11
-
-      - name: Install Trivy
-        run: |
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh
-
-      - name: Run Trivy scan
-        run: trivy fs --exit-code 0 --severity HIGH,CRITICAL .
+          scan-type: fs
+          severity: HIGH,CRITICAL
+          exit-code: 0
