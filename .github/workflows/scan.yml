@@ -42,3 +42,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+
+      # Step 6: Upload parsed JSON artifact
+      - name: Upload Trivy JSON
+        uses: actions/upload-artifact@v3
+        with:
+          name: trivy-parsed
+          path: trivy-parsed.json
