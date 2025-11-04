@@ -23,4 +23,6 @@ jobs:
           scan-type: fs
           scan-ref: '.'
           severity: HIGH,CRITICAL
+          format: json
+          output: trivy-results.json
           exit-code: 0
