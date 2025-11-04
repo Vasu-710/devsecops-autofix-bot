@@ -9,17 +9,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Checkout repo
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      # Step 2: Setup Python
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: 3.11
 
-      # Step 3: Run Trivy Scan
       - name: Run Trivy Scan
         uses: aquasecurity/trivy-action@0.28.0
         with:
@@ -30,21 +27,10 @@ jobs:
           output: trivy-results.json
           exit-code: 0
 
-      # Step 4: Run Python parser
-      - name: Run Python parser
-        run: python bot/main.py
+      - name: Parse Trivy JSON
+        run: python scripts/parse_trivy.py
 
-      # Step 5: Run Auto-Fix PR Bot
-      - name: Run Auto-Fix PR Bot
-        run: |
-          pip install PyGithub
-          python bot/auto_fix.py
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-
-      # Step 6: Upload parsed JSON artifact
-      - name: Upload Trivy JSON
+      - name: Upload parsed Trivy JSON
         uses: actions/upload-artifact@v4
         with:
           name: trivy-parsed
