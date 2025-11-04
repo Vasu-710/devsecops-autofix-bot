@@ -12,9 +12,15 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.11
+
       - name: Run Trivy Scan
-        uses: aquasecurity/trivy-action@v2
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           scan-type: fs
+          scan-ref: '.'
           severity: HIGH,CRITICAL
           exit-code: 0
