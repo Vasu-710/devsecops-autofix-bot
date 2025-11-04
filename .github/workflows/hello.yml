@@ -1,12 +1,23 @@
-name: Hello Security Bot
+name: DevSecOps Bot Scan
+
 on:
   push:
     branches: [ main ]
+
 jobs:
-  build:
+  scan:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
-      - name: Run hello
-        run: echo "Security Bot online ✅"
+
+      - name: Install Trivy
+        run: |
+          sudo apt-get update
+          sudo apt-get install wget -y
+          wget https://github.com/aquasecurity/trivy/releases/latest/download/trivy_0.45.0_Linux-64bit.deb
+          sudo dpkg -i trivy_0.45.0_Linux-64bit.deb
+
+      - name: Run Trivy scan
+        run: trivy fs .
