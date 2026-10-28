@@ -11,13 +11,16 @@ If anything goes wrong the script exits non-zero so the workflow turns red.
 
 import json
 import os
+import re
 import sys
 from datetime import datetime, timezone
 
-from github import Github, GithubException
+from github import Auth, Github, GithubException
 
 REQUIREMENTS_PATH = "requirements.txt"
 BASE_BRANCH = "main"
+
+SEPARATORS = ("===", "==", ">=", "<=", "~=", "!=", ">", "<")
 
 
 def load_findings():
@@ -30,42 +33,100 @@ def parse_package_name(line):
     """
     Pull the package name out of one line of requirements.txt.
 
-    Handles ==, >=, <=, ~=, !=, > and <, plus bare names with no pin at all.
     Returns None for comments, blank lines and flags like -r other.txt.
     """
     text = line.split("#", 1)[0].strip()
     if not text or text.startswith("-"):
         return None
-    for separator in ("===", "==", ">=", "<=", "~=", "!=", ">", "<"):
+    for separator in SEPARATORS:
         if separator in text:
             return text.split(separator, 1)[0].strip()
     return text
 
 
+def parse_pinned_version(line):
+    """Return the version if the line is pinned with ==, otherwise None."""
+    text = line.split("#", 1)[0].strip()
+    if "==" not in text:
+        return None
+    return text.split("==", 1)[1].strip()
+
+
+def version_key(version):
+    """
+    Sortable key for a version string.
+
+    Good enough to compare release versions like 1.26.5 against 2.8.0.
+
+    The third element of each tuple is True for a plain number and False when
+    there is a trailing suffix, so that 2.0.0 sorts above 2.0.0rc1 rather than
+    below it.
+    """
+    key = []
+    for chunk in re.split(r"[._-]", version):
+        match = re.match(r"^(\d+)(.*)$", chunk)
+        if match:
+            suffix = match.group(2)
+            key.append((1, int(match.group(1)), suffix == "", suffix))
+        else:
+            key.append((0, 0, False, chunk))
+    return key
+
+
+def major_of(version):
+    """First numeric component, or None if there isn't one."""
+    match = re.match(r"^(\d+)", version or "")
+    return int(match.group(1)) if match else None
+
+
 def build_fix_map(findings):
-    """Map package name -> the version Trivy says is fixed."""
+    """
+    Map package name -> the highest fixed version across all of its findings.
+
+    A package can have several CVEs, each with its own FixedVersion, and
+    Trivy sometimes lists more than one per CVE. Picking any single one is not
+    enough: only the highest fixes all of them. Taking whichever happened to be
+    processed last would leave known vulnerabilities in place.
+    """
     fixes = {}
     for vuln in findings:
         name = vuln.get("PkgName")
         fixed = vuln.get("FixedVersion")
         if not name or not fixed:
             continue
-        # FixedVersion is sometimes a comma separated list. Take the last one.
-        fixes[name] = fixed.split(",")[-1].strip()
+        for candidate in (part.strip() for part in fixed.split(",") if part.strip()):
+            current = fixes.get(name)
+            if current is None or version_key(candidate) > version_key(current):
+                fixes[name] = candidate
     return fixes
 
 
 def apply_fixes(content, fixes):
-    """Return the rewritten file and a list of (before, after) changes."""
+    """Return the rewritten file and a list of change records."""
     changes = []
     output = []
     for line in content.splitlines(keepends=True):
         name = parse_package_name(line)
         if name and name in fixes:
             ending = "\n" if line.endswith("\n") else ""
-            replacement = f"{name}=={fixes[name]}{ending}"
+            new_version = fixes[name]
+            replacement = f"{name}=={new_version}{ending}"
             if replacement != line:
-                changes.append((line.strip(), replacement.strip()))
+                old_version = parse_pinned_version(line)
+                old_major = major_of(old_version)
+                new_major = major_of(new_version)
+                changes.append({
+                    "name": name,
+                    "before": line.strip(),
+                    "after": replacement.strip(),
+                    "old_version": old_version,
+                    "new_version": new_version,
+                    "major_bump": (
+                        old_major is not None
+                        and new_major is not None
+                        and new_major != old_major
+                    ),
+                })
                 output.append(replacement)
                 continue
         output.append(line)
@@ -79,8 +140,26 @@ def build_pr_body(findings, changes):
         "### Changes",
         "",
     ]
-    for before, after in changes:
-        lines.append(f"- `{before}` becomes `{after}`")
+    for change in changes:
+        flag = "  **major version change, review before merging**" if change["major_bump"] else ""
+        lines.append(f"- `{change['before']}` becomes `{change['after']}`{flag}")
+
+    majors = [c for c in changes if c["major_bump"]]
+    if majors:
+        names = ", ".join(c["name"] for c in majors)
+        lines += [
+            "",
+            f"> This patch crosses a major version boundary for {names}. "
+            "Major releases can remove or change APIs, so this is not a drop-in "
+            "upgrade and should be tested rather than merged on sight.",
+        ]
+
+    lines += [
+        "",
+        "Each package is pinned to the highest fixed version reported across all "
+        "of its findings, so that one patch closes every CVE listed below rather "
+        "than only the last one checked.",
+    ]
 
     for severity in ("CRITICAL", "HIGH"):
         items = findings.get(severity, [])
@@ -107,7 +186,8 @@ def main():
     if not fixes:
         print("Findings exist but none of them have a FixedVersion. Nothing to patch.")
         return
-    print(f"Packages with a fix available: {sorted(fixes)}")
+    for name in sorted(fixes):
+        print(f"  highest fixed version for {name}: {fixes[name]}")
 
     token = os.environ.get("GH_TOKEN")
     if not token:
@@ -117,11 +197,11 @@ def main():
     if not repo_name:
         sys.exit("GITHUB_REPOSITORY is not set.")
 
-    repo = Github(token).get_repo(repo_name)
+    repo = Github(auth=Auth.Token(token)).get_repo(repo_name)
 
-    # Read requirements.txt from GitHub, not from the runner's disk.
-    # The runner's copy is thrown away when the job ends, so it is useless
-    # for building a commit.
+    # Read requirements.txt from GitHub, not from the runner's disk. The
+    # runner's copy is thrown away when the job ends, so it is useless for
+    # building a commit.
     try:
         current = repo.get_contents(REQUIREMENTS_PATH, ref=BASE_BRANCH)
     except GithubException as e:
@@ -135,8 +215,9 @@ def main():
         print("pins the fixed versions. No pull request needed.")
         return
 
-    for before, after in changes:
-        print(f"  {before}  ->  {after}")
+    for change in changes:
+        note = "  (MAJOR VERSION CHANGE)" if change["major_bump"] else ""
+        print(f"  {change['before']}  ->  {change['after']}{note}")
 
     branch_name = f"auto-fix-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
     base = repo.get_branch(BASE_BRANCH)
