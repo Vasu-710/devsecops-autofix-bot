@@ -3,6 +3,7 @@ name: DevSecOps Bot Scan
 on:
   push:
     branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   scan:
@@ -17,9 +18,11 @@ jobs:
         with:
           python-version: 3.11
 
+      # requirements.txt is the file being scanned, not the file being
+      # installed. Install the bot's own dependency directly so a deliberately
+      # vulnerable pin cannot break the run.
       - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
+        run: pip install PyGithub
 
       - name: Run Trivy Scan
         uses: aquasecurity/trivy-action@0.28.0

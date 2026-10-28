@@ -1,0 +1,17 @@
+# macOS
+.DS_Store
+
+# Editors
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Bot output, generated at run time
+bot/trivy-results.json
+bot/trivy-parsed.json
+fix_dummy.txt
