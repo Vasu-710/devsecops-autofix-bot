@@ -22,7 +22,10 @@ jobs:
       # installed. Install the bot's own dependency directly so a deliberately
       # vulnerable pin cannot break the run.
       - name: Install dependencies
-        run: pip install PyGithub
+        run: pip install PyGithub pytest
+
+      - name: Run tests
+        run: pytest tests/ -q
 
       - name: Run Trivy Scan
         uses: aquasecurity/trivy-action@v0.35.0

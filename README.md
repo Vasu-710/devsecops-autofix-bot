@@ -1,235 +1,83 @@
-# 🤖 DevSecOps Auto-Fix Bot
+# DevSecOps Auto-Fix Bot
 
 ![DevSecOps Scan](https://github.com/Vasu-710/devsecops-autofix-bot/actions/workflows/scan.yml/badge.svg)
-![Python Version](https://img.shields.io/badge/python-3.11-blue.svg)
-![License](https://img.shields.io/badge/license-MIT-green.svg)
 
-> An intelligent automation bot that scans your GitHub repository for security vulnerabilities and automatically creates pull requests with fixes.
+Scans a repository's Python dependencies for known vulnerabilities and opens a
+pull request that pins them to patched versions.
 
----
+## What it does
 
-## 🎯 Overview
+On every push to `main`, and on manual trigger:
 
-DevSecOps Auto-Fix Bot continuously monitors your repository for HIGH and CRITICAL security vulnerabilities using industry-standard scanning tools. When vulnerabilities are detected, the bot automatically generates fix recommendations and creates pull requests, streamlining your security workflow and reducing manual intervention.
+1. **Trivy** scans the repository filesystem and reports HIGH and CRITICAL
+   findings as JSON.
+2. **`bot/parse_trivy.py`** splits those findings into two lists by severity.
+3. **`bot/auto_fix.py`** works out the highest patched version for each affected
+   package, reads `requirements.txt` from the repository, rewrites the affected
+   lines, commits the result to a new branch, opens a pull request, and then
+   fetches that pull request back to confirm it actually contains the change.
 
----
+If any step fails, the script prints the GitHub status code and message and
+exits non-zero, so the workflow turns red.
 
-## ✨ Key Features
+Nothing is merged automatically. The output is a pull request for a person to
+review.
 
-- **🔍 Automated Security Scanning** - Leverages Trivy to detect vulnerabilities in dependencies
-- **🎯 Smart Filtering** - Focuses on HIGH and CRITICAL severity issues
-- **🔧 Automatic Fix Generation** - Creates branches with dependency version updates
-- **📝 Detailed PR Descriptions** - Generates comprehensive pull requests with vulnerability breakdowns
-- **📊 Artifact Storage** - Uploads parsed scan results for audit and analysis
-- **⚡ CI/CD Integration** - Seamlessly integrates with GitHub Actions workflow
+## What it does not do
 
----
+- **Only `requirements.txt` at the repository root.** No `pyproject.toml`, no
+  lock files, no other languages.
+- **Trivy can only resolve exact pins.** A line like `PyGithub>=1.55` has no
+  single version to check, so it produces no findings. A requirements file with
+  no `==` pins will scan clean no matter what is actually installed.
+- **The patch may cross a major version.** The bot picks the highest patched
+  version across all of a package's findings, because a lower one can leave
+  other CVEs open. That can mean jumping from `1.x` to `2.x`, which may break
+  the application. The bot flags this in the pull request body but does not try
+  to find a compatible alternative.
+- **No verification that anything still works.** It does not install the new
+  versions or run the project's tests against them.
 
-## 🏗️ Architecture
+## Running it
 
-```
-┌─────────────────┐
-│   Code Push     │
-│   to main       │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ GitHub Actions  │
-│    Triggered    │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Trivy Scanner  │
-│  (Vuln. Scan)   │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Parse Results  │
-│ (parse_trivy.py)│
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│   Auto-Fix Bot  │
-│ (auto_fix.py)   │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Create PR +    │
-│ Upload Artifact │
-└─────────────────┘
+Needs a `GH_TOKEN` repository secret with permission to write contents and open
+pull requests. A fine-grained token scoped to this repository alone is enough.
+
+Locally:
+
+```bash
+pip install PyGithub
+python bot/parse_trivy.py     # expects bot/trivy-results.json
+python bot/auto_fix.py        # needs GH_TOKEN and GITHUB_REPOSITORY set
 ```
 
----
+## Tests
 
-## 🚀 Quick Start
-
-### Prerequisites
-
-- Python 3.11 or higher
-- GitHub account with repository access
-- GitHub Personal Access Token with `repo` permissions
-
-### Installation
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/Vasu-710/devsecops-autofix-bot.git
-   cd devsecops-autofix-bot
-   ```
-
-2. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **Configure GitHub Token**
-   - Navigate to your repository settings
-   - Go to `Settings` → `Secrets and variables` → `Actions`
-   - Add a new secret named `GH_TOKEN` with your GitHub Personal Access Token
-
-4. **Trigger the workflow**
-   ```bash
-   git add .
-   git commit -m "Initial setup"
-   git push origin main
-   ```
-
-The workflow will automatically run on every push to the `main` branch.
-
----
-
-## 📖 Usage
-
-### Automatic Scanning
-
-The bot automatically scans your repository when:
-- Code is pushed to the `main` branch
-- A pull request is merged into `main`
-
-### Manual Trigger
-
-You can also manually trigger the workflow from the GitHub Actions tab.
-
-### Review Pull Requests
-
-When vulnerabilities are found:
-1. The bot creates a new branch with timestamp (e.g., `auto-fix-20250109-143052`)
-2. A pull request is opened with detailed vulnerability information
-3. Review the changes and merge if appropriate
-
-### View Scan Results
-
-Detailed scan artifacts are available in the Actions tab:
-1. Navigate to `Actions` → Select the latest workflow run
-2. Download the `trivy-parsed` artifact
-3. Review the JSON file for complete vulnerability details
-
----
-
-## 🛠️ Tech Stack
-
-| Technology | Purpose |
-|------------|---------|
-| **Python 3.11** | Core scripting and automation logic |
-| **Trivy** | Security vulnerability scanner |
-| **GitHub Actions** | CI/CD automation and workflow orchestration |
-| **PyGithub** | GitHub API integration for PR creation |
-
----
-
-## 📁 Project Structure
-
-```
-devsecops-autofix-bot/
-├── .github/
-│   └── workflows/
-│       └── scan.yml          # GitHub Actions workflow
-├── bot/
-│   ├── parse_trivy.py        # Trivy results parser
-│   ├── auto_fix.py           # PR creation and fix logic
-│   └── main.py               # Main orchestrator
-├── tests/
-│   └── tests.py              # Test suite (TBD)
-├── requirements.txt          # Python dependencies
-└── README.md                 # Project documentation
+```bash
+pip install PyGithub pytest
+pytest tests/
 ```
 
----
+The tests cover the version comparison and the requirements file rewriting,
+which is where every decision about what to pin is actually made. The GitHub
+API calls are deliberately thin and are not mocked.
 
-## 🔧 Configuration
+## History
 
-### Scan Severity Levels
+From November 2025 until October 2026 this bot never opened a single pull
+request, and every run reported success.
 
-By default, the bot scans for HIGH and CRITICAL vulnerabilities. To modify:
+It edited `requirements.txt` on the Actions runner and never committed the
+change, so the branch it created stayed identical to `main`. GitHub rejects a
+pull request between two identical branches, a bare `except:` caught the
+rejection and printed `"Pull request already exists or failed."`, and the script
+exited zero. Green tick, nothing done.
 
-Edit `.github/workflows/scan.yml`:
-```yaml
-severity: HIGH,CRITICAL,MEDIUM  # Add MEDIUM severity
-```
+It was also dormant for a second reason. `requirements.txt` held one unpinned
+dependency, Trivy had nothing it could resolve, the scan returned no findings,
+and the script exited before it ever reached the pull request code.
 
-### Custom Fix Logic
-
-To customize how fixes are applied, modify `bot/auto_fix.py`:
-```python
-# Add custom fix logic for specific packages
-if pkg_name == "your-package":
-    # Your custom fix here
-    pass
-```
-
----
-
-## 🔮 Roadmap
-
-- [ ] **Notification Integration** - Slack/Teams alerts when PRs are created
-- [ ] **HTML Reports** - Generate visual vulnerability reports
-- [ ] **CVE Enrichment** - Auto-comment CVE links and details in PRs
-- [ ] **Multi-Language Support** - Extend to JavaScript, Java, Go, etc.
-- [ ] **Custom Fix Templates** - User-defined fix strategies
-- [ ] **Scheduled Scans** - Periodic scanning independent of commits
-- [ ] **Dashboard UI** - Web interface for vulnerability trends
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request. For major changes:
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
----
-
-## 📄 License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
----
-
-## 🙏 Acknowledgments
-
-- [Aqua Security](https://www.aquasec.com/) for Trivy scanner
-- GitHub Actions for CI/CD platform
-- PyGithub for seamless GitHub API integration
-
----
-
-## 👨‍💻 Author
-
-**Vasu Saini**
-
-- GitHub: [@Vasu-710](https://github.com/Vasu-710)
-- Project Link: [https://github.com/Vasu-710/devsecops-autofix-bot](https://github.com/Vasu-710/devsecops-autofix-bot)
-
----
-
-<p align="center">Made with ❤️ by Vasu Saini</p>
-<p align="center">⭐ Star this repo if you find it helpful!</p>
+Both were found by looking at the repository rather than at the source: the pull
+request tab showed zero pull requests ever, and the branch list showed one
+branch. Nothing here deletes branches, so if the bot had ever got as far as
+creating one, it would still be there.
