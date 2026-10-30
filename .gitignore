@@ -14,4 +14,3 @@ venv/
 # Bot output, generated at run time
 bot/trivy-results.json
 bot/trivy-parsed.json
-fix_dummy.txt
